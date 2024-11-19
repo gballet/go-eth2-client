@@ -32,9 +32,9 @@ type IPAProof struct {
 }
 
 type VerkleProof struct {
-	OtherStems            [][]byte  `ssz-max:"65536,31"`
+	OtherStems            [][]byte  `ssz-size:"?,31" ssz-max:"65536,31"`
 	DepthExtensionPresent []byte    `ssz-max:"65536"`
-	CommitmentsByPath     [][]byte  `ssz-max:"65536,32"`
+	CommitmentsByPath     [][]byte  `ssz-size:"?,32" ssz-max:"65536,32"`
 	D                     [32]byte  `ssz-size:"32"`
 	IPAProof              *IPAProof `ssz-size:"544"`
 }
@@ -49,6 +49,26 @@ type SuffixStateDiffJSON struct {
 	Suffix       string  `json:"suffix"`
 	CurrentValue *string `json:"currentValue"`
 	NewValue     *string `json:"newValue"`
+}
+
+func (s *SuffixStateDiff) MarshalJSON() ([]byte, error) {
+	var currentValue, newValue *string
+
+	if s.CurrentValue != nil {
+		currentValueStr := fmt.Sprintf("%x", s.CurrentValue)
+		currentValue = &currentValueStr
+	}
+
+	if s.NewValue != nil {
+		newValueStr := fmt.Sprintf("%x", s.NewValue)
+		newValue = &newValueStr
+	}
+
+	return json.Marshal(&SuffixStateDiffJSON{
+		Suffix:       fmt.Sprintf("%d", s.Suffix),
+		CurrentValue: currentValue,
+		NewValue:     newValue,
+	})
 }
 
 func (s *SuffixStateDiff) UnmarshalJSON(input []byte) error {
@@ -106,6 +126,13 @@ type stemStateDiffJSON struct {
 	SuffixDiffs []*SuffixStateDiff `json:"suffixDiffs"`
 }
 
+func (s *StemStateDiff) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&stemStateDiffJSON{
+		Stem:        fmt.Sprintf("%x", s.Stem),
+		SuffixDiffs: s.SuffixDiffs,
+	})
+}
+
 func (s *StemStateDiff) UnmarshalJSON(input []byte) error {
 	var ssd stemStateDiffJSON
 	if err := json.Unmarshal(input, &ssd); err != nil {
@@ -128,12 +155,14 @@ func (s *VerkleProof) UnmarshalJSON(input []byte) error {
 }
 
 type ExecutionWitness struct {
-	StateDiff   []*StemStateDiff `ssz-max:"1048576,1073741824" ssz-size:"?,?" json:"stateDiff"`
-	VerkleProof *VerkleProof     `ssz-max:"1048576,1073741824" ssz-size:"?,?"`
+	StateDiff       []*StemStateDiff `ssz-max:"1048576,1073741824" ssz-size:"?,?" json:"stateDiff"`
+	VerkleProof     *VerkleProof     `ssz-max:"1048576,1073741824" ssz-size:"?,?"`
+	ParentStateRoot [32]byte         `ssz-size:"32"`
 }
 
 type executionWitnessJSON struct {
-	StateDiff []*StemStateDiff `json"stateDiff""`
+	StateDiff       []*StemStateDiff `json:"stateDiff""`
+	ParentStateRoot *string          `json:"parentStateRoot"`
 }
 
 func (ew *ExecutionWitness) UnmarshalJSON(input []byte) error {
@@ -145,6 +174,13 @@ func (ew *ExecutionWitness) UnmarshalJSON(input []byte) error {
 	ew.StateDiff = make([]*StemStateDiff, len(res.StateDiff))
 	for i, sd := range res.StateDiff {
 		ew.StateDiff[i] = sd
+	}
+	if res.ParentStateRoot != nil {
+		psr, err := hex.DecodeString(strings.TrimPrefix(*res.ParentStateRoot, "0x"))
+		if err != nil {
+			return fmt.Errorf("error decoding parent state root string: %w", err)
+		}
+		copy(ew.ParentStateRoot[:], psr)
 	}
 	return nil
 }
